@@ -1,0 +1,362 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">
+<html><head>
+<meta http-equiv="content-type" content="text/html; charset=UTF-8">
+<title>Wordless</title>
+
+<script type="text/javascript" src="js/PapaParse-5.0.2/papaparse.js"></script>
+
+<style>
+html {
+  padding: 0;
+  margin: 0;
+  width: 100%;
+  height: 100%;
+}
+
+body {
+  padding: 0;
+  margin: 0;
+  background-color: #000000;
+}
+
+#container {
+  width: 100vw;
+  height: 100vh;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  align-content: center;
+  padding: auto;
+}
+
+#top {
+  width: 100%;
+  height: 30vh;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  align-content: center;
+  padding: auto;
+}
+
+#bottom {
+  width: 100%;
+  height: 70vh;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  align-content: center;
+  padding: auto;
+}
+
+.button {
+  margin: auto;
+  border: none;
+  background-color: #000000;
+  color: white;
+  min-width: 300px;
+  min-height: 100px;
+  padding: 15px 32px;
+  text-align: center;
+  text-decoration: none;
+  display: inline-block;
+  font-size: 2em;
+  cursor: pointer;
+  opacity: 0.5;
+  transition: 0.3s;
+}
+
+.button:hover {
+  background-color: #4CAF50; /* Green */
+  opacity: 1;
+}
+
+#webconsole {
+  background-color: #444444;
+  color: white;
+  width: 90%;
+  height: 90%;
+  font-family: mono;
+  font-size: 0.8em;
+  padding: 1vh 1vw;
+  overflow: auto;
+}
+
+</style>
+
+</head>
+<body>
+
+<div id="container">
+  <section id="top">
+    <button class="button">start</button>
+  </section>
+  <section id="bottom">
+    <pre id="webconsole"></pre>
+  </section>
+</div>
+
+<script type="text/javascript">
+
+// On document loaded functions...
+window.addEventListener('load', function(e) {
+  console.log('resources loaded...'); // this is called when all images & resources are loaded
+  init();
+});
+
+let startButton, webConsole;
+let win = [undefined, undefined];
+
+let playing = false;
+let textFilepath = "test1.csv";
+let textData;
+let textDataHeader;
+let textDataReady = false;
+let curr_line = 0; // start on line 0
+let curr_window = 0; // start on window 0
+let curr_speaker = 0;
+let speakers = [];
+let start_ts = undefined; // starting timestamp
+let last_ts = undefined;  // timestamp of last phrase played
+let waitfor = 2000; // wait for 2 seconds before starting...
+const SAMPLES_PER_LOAD = 6; // number of samples to load at a time
+const LOADSAMPLES_LOOKAHEAD = 2; // look ahead this many lines to see if more samples must be loaded
+
+let sampleFiles = [];
+
+// Create the AudioContext
+const AudioContext = window.AudioContext || window.webkitAudioContext;
+let actx;
+
+function init() {
+  webConsole = document.querySelector('#webconsole');
+
+  // Log console feedback into webConsole element
+  console.log = (function (old_log, log) {
+    return function () {
+        log.textContent += "\n" + Array.prototype.slice.call(arguments).join(' ');
+        old_log.apply(console, arguments);
+        log.scrollTo(0, log.scrollHeight);
+    };
+  } (console.log.bind(console), webConsole));
+
+  // Load CSV file containing conversation.
+  // See: https://www.papaparse.com/docs
+  Papa.parse(textFilepath, {
+    download: true,
+	   complete: function(results) {
+       textData = results.data;
+       console.log("Finished reading CSV:", textData);
+       textDataHeader = textData[0]; // the first line is the header
+       if(textData[textData.length-1][0] == "") {
+         // throw out the last line if it is empty
+         textData.pop();
+       }
+       sampleFiles = new Array(textData.length - 1);
+       let i,j,sample;
+       for(i = 1; i < textData.length; i++) {
+          sample = {};
+          for(j=0; j<textDataHeader.length; j++) {
+            sample[textDataHeader[j]] = textData[i][j];
+          }
+          if(sample['speaker']) {
+            if(!speakers.includes(sample['speaker'])) {
+              speakers.push(sample['speaker']);
+            }
+          }
+          sample['buf'] = undefined;
+          sample['loaded'] = false;
+          sampleFiles[i-1] = sample;
+       }
+	   }
+  });
+
+  /*
+  // Stream big file asynchronously in worker thread, parsing rows asynchronously
+  Papa.parse(filepath, {
+    download: true,
+	   worker: true,
+	    step: function(results) {
+		      console.log("Row:", results.data);
+	    }
+  });
+  */
+
+
+  startButton = document.querySelector('.button');
+  startButton.state = false;
+  startButton.addEventListener('click', async function(e) {
+    startButton.state = !startButton.state;
+    if(startButton.state) {
+      this.textContent = "stop";
+      console.log("start playback...");
+
+      let windowFeatures = "menubar=no,location=no,resizable=yes,scrollbars=no,status=no,width=600px,height=300px";
+      if(!win[0] || win[0].closed) {
+        win[0] = window.open("player.html", "win1", windowFeatures);
+
+        setTimeout(function() {
+          win[0].eval("setTitle('Window 1')");
+          win[0].eval("setText('Window 1')");
+        }, 500);
+
+        console.log("Opening win1");
+      }
+
+      if(!win[1] || win[1].closed) {
+        win[1] = window.open("player.html", "win2", windowFeatures);
+
+        setTimeout(function() {
+          win[1].eval("setTitle('Window 2')");
+          win[1].eval("setText('Window 2')");
+          win[1].moveBy(100, win[1].innerHeight * 1.5);
+        }, 500);
+
+        console.log("Opening win2");
+      }
+
+      // START AUDIO CONTEXT... wait for finish...
+      await initAudio();
+
+      // START SEQUENCER
+      playing=true;
+      animate();
+
+
+    } else {
+      this.textContent = "start";
+      console.log("stop playback...");
+
+      // STOP ANIMATION / CONVERSATION SEQUENCER
+      playing=false;
+
+      // STOP AUDIO CONTEXT
+      actx.suspend();
+
+      if(win[0])
+        win[0].close();
+      if(win[1])
+        win[1].close();
+    }
+  });
+}
+
+
+function animate(ts) {
+  if(last_ts === undefined)
+    last_ts = ts;
+  if(start_ts === undefined)
+    start_ts = ts;
+
+  const sincelast = ts - last_ts;
+  if(sincelast > waitfor) { // until the last line finishes playing...
+    last_ts = ts;
+    const sf = sampleFiles[curr_line];
+    const target_window = win[speakers.indexOf(sf.speaker)];
+
+    playLine(target_window, sf);
+
+    const pause_ms = Math.floor(Math.random() * 2000); // insert a little pause between lines...
+
+    waitfor = sf.duration_ms + pause_ms;
+
+    // Lookahead and load more samples if needed...
+    let idx = 0, loadmore=false, loadindex;
+    while((idx+curr_line) < sampleFiles.length && (idx < LOADSAMPLES_LOOKAHEAD)) {
+      if(!sampleFiles[idx+curr_line]['loaded']) {
+        loadmore = true;
+        if(loadindex === undefined) {
+          loadindex = idx + curr_line;
+        }
+      }
+      idx++;
+    }
+
+    if(loadmore) {
+      // load more samples
+      let endidx = loadindex + SAMPLES_PER_LOAD + 1;
+      if(endidx > sampleFiles.length)
+        endidx = sampleFiles.length;
+      loadSamples(actx, sampleFiles.slice(curr_line, endidx));
+    }
+
+    curr_line++;
+    if(curr_line >= sampleFiles.length) {
+      curr_line=0;
+    }
+  }
+
+  if(playing) {
+    requestAnimationFrame( animate );
+  }
+}
+
+// Play a line to the given window
+function playLine(thewin, sf) {
+  const cmd = "setText(`" + sf.line + "`)";
+  console.log(thewin.name + ": " + sf.file, cmd);
+  thewin.eval(cmd);
+  playSample(actx, sf.buf, 1);
+}
+
+function escapeQuotes(str) {
+
+}
+
+
+// TODO: How to dispose of an audio file?
+// Load an Audio File ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// fetch() the audio file and decode it into a buffer...
+//    this is an asynchronous function and returns a promise
+//    which resolves to an audio buffer
+// see: https://developer.mozilla.org/en-US/docs/Web/API/AudioBuffer
+async function getAudioFile(context, filepath) {
+  const response = await fetch(filepath);
+  const arrayBuffer = await response.arrayBuffer();
+  const audioBuffer = await context.decodeAudioData(arrayBuffer);
+  return audioBuffer;
+}
+
+// PRELOAD A BATCH OF SAMPLE FILES
+async function loadSamples(context, sampleFileBatch) {
+  let buf, sf;
+  for(let i=0; i < sampleFileBatch.length; i++) {
+    sf = sampleFileBatch[i];
+    buf = await getAudioFile(context, "samples/" + sf.file);
+    sf['buf'] = buf;
+    sf['loaded'] = true;
+    sf['duration_ms'] = buf.duration * 1000;
+    console.log("Loaded sample...", sf.file);
+  }
+}
+
+// PLAY A BUFFER....
+function playSample(audioContext, buf, playrate=1) {
+    const sample = audioContext.createBufferSource();
+    sample.buffer = buf;
+    sample.playbackRate.setValueAtTime(playrate, actx.currentTime);
+    sample.connect(audioContext.destination)
+    sample.start();
+    return sample;
+}
+
+
+async function initAudio() {
+  // Check if context exists...
+  if(actx) {
+    actx.resume();
+  } else {
+    actx = new AudioContext();
+  }
+
+  // preload first N samples
+  await loadSamples(actx, sampleFiles.slice(0, Math.min(SAMPLES_PER_LOAD, sampleFiles.length)));
+
+}
+
+
+</script>
+
+</body>
+</html>
