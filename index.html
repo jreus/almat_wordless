@@ -164,9 +164,13 @@ function init() {
             if(!speakers.includes(sample['speaker'])) {
               speakers.push(sample['speaker']);
             }
+            sample['pan'] = ((speakers.indexOf(sample['speaker']) % 2) * 2) - 1;
+          } else {
+            sample['pan'] = 0;
           }
           sample['buf'] = undefined;
           sample['loaded'] = false;
+          sample['index'] = i-1;
           sampleFiles[i-1] = sample;
        }
 	   }
@@ -183,6 +187,12 @@ function init() {
   });
   */
 
+  // http://ronovoa.tripod.com/sim2/smv290.html
+  // SMV 290 wall monitor
+  const ASPECT = 4/3;
+  const MONITOR_HEIGHT = 400;
+  const MONITOR_WIDTH = ASPECT * MONITOR_HEIGHT;
+
 
   startButton = document.querySelector('.button');
   startButton.state = false;
@@ -192,7 +202,7 @@ function init() {
       this.textContent = "stop";
       console.log("start playback...");
 
-      let windowFeatures = "menubar=no,location=no,resizable=yes,scrollbars=no,status=no,width=600px,height=300px";
+      let windowFeatures = "menubar=no,location=no,resizable=yes,scrollbars=no,status=no,width="+MONITOR_WIDTH+"px,height="+MONITOR_HEIGHT+"px";
       if(!win[0] || win[0].closed) {
         win[0] = window.open("player.html", "win1", windowFeatures);
 
@@ -293,11 +303,11 @@ function animate(ts) {
 }
 
 // Play a line to the given window
-function playLine(thewin, sf) {
-  const cmd = "setText(`" + sf.line + "`)";
-  console.log(thewin.name + ": " + sf.file, cmd);
+function playLine(thewin, sampleFile, sampleFileIndex) {
+  const cmd = "setText(`" + sampleFile.line + "`)";
+  console.log(thewin.name + ": " + sampleFile.file, cmd);
   thewin.eval(cmd);
-  playSample(actx, sf.buf, 1);
+  playSample(actx, sampleFile, 1);
 }
 
 function escapeQuotes(str) {
@@ -332,13 +342,27 @@ async function loadSamples(context, sampleFileBatch) {
 }
 
 // PLAY A BUFFER....
-function playSample(audioContext, buf, playrate=1) {
-    const sample = audioContext.createBufferSource();
-    sample.buffer = buf;
-    sample.playbackRate.setValueAtTime(playrate, actx.currentTime);
-    sample.connect(audioContext.destination)
+function playSample(audioContext, sampleFile, playrate=1) {
+    let sample = audioContext.createBufferSource();
+    let panner = audioContext.createStereoPanner();
+
+    sample.buffer = sampleFile['buf'];
+    sample.playbackRate.setValueAtTime(playrate, audioContext.currentTime);
+    panner.pan.setValueAtTime(sampleFile['pan'], audioContext.currentTime);
+    panner.connect(audioContext.destination);
+    sample.connect(panner);
+
+    sample.addEventListener('ended', function(ev) {
+      // free up audio nodes and buffer...
+      sample.stop();
+      sample.disconnect();
+      panner.disconnect();
+      // free buffer...
+      sampleFile['buf'] = undefined;
+      sampleFile['loaded'] = false;
+    });
+
     sample.start();
-    return sample;
 }
 
 
@@ -349,7 +373,6 @@ async function initAudio() {
   } else {
     actx = new AudioContext();
   }
-
   // preload first N samples
   await loadSamples(actx, sampleFiles.slice(0, Math.min(SAMPLES_PER_LOAD, sampleFiles.length)));
 
