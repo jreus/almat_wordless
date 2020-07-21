@@ -105,11 +105,15 @@ window.addEventListener('load', function(e) {
   init();
 });
 
+const AUTOSTART = true;
+
 let startButton, webConsole;
 let win = [undefined, undefined];
+let windowStartPositions = [{x: 0, y: 0}, {x: 300, y: 300}];
 
 let playing = false;
-let textFilepath = "test1.csv";
+let samplesDir = "CONVERSATION_ALMAT_render/"
+let textFilepath = samplesDir + "conversation.csv";
 let textData;
 let textDataHeader;
 let textDataReady = false;
@@ -147,7 +151,8 @@ function init() {
     download: true,
 	   complete: function(results) {
        textData = results.data;
-       console.log("Finished reading CSV:", textData);
+       console.log(`Finished reading CSV file "${textFilepath}"`);
+       console.log(textData);
        textDataHeader = textData[0]; // the first line is the header
        if(textData[textData.length-1][0] == "") {
          // throw out the last line if it is empty
@@ -192,7 +197,6 @@ function init() {
   const ASPECT = 4/3;
   const MONITOR_HEIGHT = 400;
   const MONITOR_WIDTH = ASPECT * MONITOR_HEIGHT;
-
 
   startButton = document.querySelector('.button');
   startButton.state = false;
@@ -250,6 +254,10 @@ function init() {
         win[1].close();
     }
   });
+
+  if(AUTOSTART) {
+    setTimeout(function() {startButton.click()}, 5000);
+  }
 }
 
 
@@ -267,9 +275,9 @@ function animate(ts) {
 
     playLine(target_window, sf);
 
-    const pause_ms = Math.floor(Math.random() * 2000); // insert a little pause between lines...
+    const pause_ms = Math.floor(Math.random() * 1000) + 100; // insert a little pause between lines...
 
-    waitfor = sf.duration_ms + pause_ms;
+    waitfor = Math.max(sf.duration_ms, 2000) + pause_ms;
 
     // Lookahead and load more samples if needed...
     let idx = 0, loadmore=false, loadindex;
@@ -333,7 +341,7 @@ async function loadSamples(context, sampleFileBatch) {
   let buf, sf;
   for(let i=0; i < sampleFileBatch.length; i++) {
     sf = sampleFileBatch[i];
-    buf = await getAudioFile(context, "samples/" + sf.file);
+    buf = await getAudioFile(context, samplesDir + sf.file);
     sf['buf'] = buf;
     sf['loaded'] = true;
     sf['duration_ms'] = buf.duration * 1000;
@@ -346,17 +354,20 @@ function playSample(audioContext, sampleFile, playrate=1) {
     let sample = audioContext.createBufferSource();
     let panner = audioContext.createStereoPanner();
 
+    console.log("Play", sampleFile);
     sample.buffer = sampleFile['buf'];
     sample.playbackRate.setValueAtTime(playrate, audioContext.currentTime);
     panner.pan.setValueAtTime(sampleFile['pan'], audioContext.currentTime);
     panner.connect(audioContext.destination);
     sample.connect(panner);
+    sample.myPanner = panner;
 
     sample.addEventListener('ended', function(ev) {
+      console.log("Stop", this);
       // free up audio nodes and buffer...
-      sample.stop();
-      sample.disconnect();
-      panner.disconnect();
+      this.stop();
+      this.disconnect();
+      this.myPanner.disconnect();
       // free buffer...
       sampleFile['buf'] = undefined;
       sampleFile['loaded'] = false;
