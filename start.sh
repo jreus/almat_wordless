@@ -30,7 +30,7 @@ else
 fi
 
 # Next open chromium with autoplay restrictions disabled and navigate to `localhost:8000`
-BROWSER_CMD="chromium-browser --autoplay-policy=no-user-gesture-required 'http://localhost:8000'"
+BROWSER_CMD="chromium-browser --disable-gesture-requirement-for-presentation --no-user-gesture-required --autoplay-policy=no-user-gesture-required 'http://localhost:8000'"
 echo "HTTP Server '$PYTHON_CMD'"
 echo "Browser '$BROWSER_CMD'"
 

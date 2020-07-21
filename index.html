@@ -105,11 +105,11 @@ window.addEventListener('load', function(e) {
   init();
 });
 
-const AUTOSTART = true;
+const AUTOSTART = false;
 
 let startButton, webConsole;
 let win = [undefined, undefined];
-let windowStartPositions = [{x: 0, y: 0}, {x: 300, y: 300}];
+let windowStartPositions = [{x: 0, y: 0}, {x: 4000, y: 300}];
 
 let playing = false;
 let samplesDir = "CONVERSATION_ALMAT_render/"
@@ -213,6 +213,7 @@ function init() {
         setTimeout(function() {
           win[0].eval("setTitle('Window 1')");
           win[0].eval("setText('Window 1')");
+          win[0].moveTo(windowStartPositions[0].x, windowStartPositions[0].y);
         }, 500);
 
         console.log("Opening win1");
@@ -224,7 +225,7 @@ function init() {
         setTimeout(function() {
           win[1].eval("setTitle('Window 2')");
           win[1].eval("setText('Window 2')");
-          win[1].moveBy(100, win[1].innerHeight * 1.5);
+          win[1].moveTo(windowStartPositions[1].x, windowStartPositions[1].y);
         }, 500);
 
         console.log("Opening win2");
@@ -256,7 +257,15 @@ function init() {
   });
 
   if(AUTOSTART) {
-    setTimeout(function() {startButton.click()}, 5000);
+    setTimeout(function() {
+      startButton.click();
+      setTimeout(function() {
+        win[0].eval("containerdiv.click()");
+      }, 1000);
+      setTimeout(function() {
+        win[1].eval("containerdiv.click()");
+      }, 2000);
+    }, 5000);
   }
 }
 
